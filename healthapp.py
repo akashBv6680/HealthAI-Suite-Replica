@@ -22,6 +22,10 @@ st.set_page_config(page_title="HealthAI", layout="wide")
 st.title("🧠 HealthAI - Multilingual Clinical AI System")
 st.caption("Clinical ML * Imaging AI * Medical RAG * Sentiment * Translator")
 
+# Initialize Session State for RAG context
+if "vlm_analysis" not in st.session_state:
+    st.session_state.vlm_analysis = ""
+
 # ==================================================
 # MODEL LOADING (WITH GRACEFUL FALLBACK)
 # ==================================================
@@ -34,7 +38,6 @@ def load_models():
     """Load ML models with error handling"""
     status = {}
     
-    # List of expected model files
     expected_models = {
         "xgboost_disease_model.json": "XGBoost Disease Model",
         "association_rules.json": "Association Rules",
@@ -62,7 +65,6 @@ def load_models():
     
     return status
 
-# Load models on startup
 MODEL_STATUS = load_models()
 
 if not API_KEY:
@@ -115,202 +117,105 @@ with tabs[0]:
         
         st.markdown("---")
         st.subheader("Clinical Assessment Results")
-        st.markdown(f"**Disease Risk: {risk}**")
+        st.write(f"**Disease Risk: {risk}**")
         
-        if risk == "LOW":
-            st.success("Low risk patient")
-        elif risk == "MEDIUM":
-            st.warning("Moderate risk - monitoring recommended")
-        else:
-            st.error("High risk - clinical attention required")
-        
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            st.metric("Age Group", "Adult" if age >= 18 else "Minor")
-        with c2:
-            bmi_cat = "Normal" if bmi < 25 else "Overweight" if bmi < 30 else "Obese"
-            st.metric("BMI Category", bmi_cat)
-        with c3:
-            st.metric("Risk Level", risk)
+        if risk == "LOW": st.success("Low risk patient")
+        elif risk == "MEDIUM": st.warning("Moderate risk - monitoring recommended")
+        else: st.error("High risk - clinical attention required")
 
 # ==================================================
-# TAB 1 - IMAGING DIAGNOSIS
+# TAB 1 - IMAGING DIAGNOSIS (AUTO-TRIGGER)
 # ==================================================
 with tabs[1]:
-    st.subheader("Medical Image Analysis with Vision Language Model")
-    st.write("Upload medical images for AI analysis using Groq VLM.")
+    st.subheader("Medical Image Analysis (Auto-Analysis)")
+    st.write("Upload an image to get an immediate AI assessment.")
     
-    uploaded_file = st.file_uploader("Upload Medical Image", type=["jpg", "png", "jpeg"])
+    uploaded_file = st.file_uploader("Upload Medical Image", type=["jpg", "png", "jpeg"], key="vlm_uploader")
     
     if uploaded_file is not None:
         from PIL import Image
         image = Image.open(uploaded_file)
-        st.image(image, caption="Uploaded Medical Image", width=400)
+        st.image(image, caption="Uploaded Image", width=400)
         
-        if not API_KEY:
-            st.warning("Configure GROQ_API_KEY to enable VLM analysis.")
-        else:
-            if st.button("Analyze Image with Groq VLM"):
-                with st.spinner("Analyzing image..."):
-                    try:
-                        image_data = image.convert('RGB')
-                        import io
-                        img_byte_arr = io.BytesIO()
-                        image_data.save(img_byte_arr, format='JPEG')
-                        img_byte_arr.seek(0)
-                        base64_image = base64.b64encode(img_byte_arr.read()).decode('utf-8')
-                        
-                        message = client.chat.completions.create(
-                            model="llama-3.2-11b-vision-preview",
-                            max_tokens=1024,
-                            messages=[
-                                {
-                                    "role": "user",
-                                    "content": [
-                                        {
-                                            "type": "text",
-                                            "text": "Analyze this medical image. Provide: 1) Image type 2) Key findings 3) Observations 4) Next steps. Be clinical."
-                                        },
-                                        {
-                                            "type": "image_url",
-                                            "image_url": {
-                                                "url": f"data:image/jpeg;base64,{base64_image}",
-                                            },
-                                        },
-                                    ],
-                                }
-                            ],
-                        )
-                        
-                        analysis = message.choices[0].message.content
-                        st.markdown("---")
-                        st.subheader("VLM Analysis Results")
-                        st.write(analysis)
-                        st.success("Analysis completed!")
-                    except Exception as e:
-                        st.error(f"Error: {str(e)[:100]}")
-                        st.info("Ensure GROQ_API_KEY supports vision models.")
-    
-    st.subheader("Medical Question Answering")
-    if API_KEY:
-        lang = st.selectbox("Choose language", ["English", "Tamil", "Hindi", "Spanish", "French"])
-        question = st.text_input("Ask a medical question")
-        
-        if question:
-            with st.spinner("Generating answer..."):
+        if API_KEY:
+            with st.spinner("AI is analyzing the image..."):
                 try:
-                    prompt = f"Answer in {lang}: {question}"
-                    response = client.chat.completions.create(
-                        model="llama-3.1-8b-instant",
-                        messages=[{"role": "user", "content": prompt}]
-                    )
-                    st.write(response.choices[0].message.content.strip())
-                except Exception as e:
-                    st.error(f"Error: {str(e)}")
-    else:
-        st.warning("Configure GROQ_API_KEY to use this feature")
-
-# ==================================================
-# TAB 2 - MEDICAL RAG
-# ==================================================
-with tabs[2]:
-    st.subheader("Medical Knowledge Base RAG")
-    st.write("Retrieve medical information from knowledge base.")
-    
-    if API_KEY:
-        query = st.text_input("Enter medical query")
-        
-        if query:
-            with st.spinner("Retrieving information..."):
-                try:
-                    prompt = f"""Based on medical knowledge, answer this clinical query:
-{query}
-
-Provide evidence-based response with references if possible."""
+                    import io
+                    img_byte_arr = io.BytesIO()
+                    image.convert('RGB').save(img_byte_arr, format='JPEG')
+                    base64_image = base64.b64encode(img_byte_arr.getvalue()).decode('utf-8')
                     
                     response = client.chat.completions.create(
-                        model="llama-3.1-8b-instant",
-                        messages=[{"role": "user", "content": prompt}]
+                        model="llama-3.2-11b-vision-preview",
+                        messages=[{
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": "Provide a detailed clinical analysis: Type, Findings, and Next Steps."},
+                                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
+                            ]
+                        }]
                     )
-                    st.success(response.choices[0].message.content.strip())
+                    
+                    st.session_state.vlm_analysis = response.choices[0].message.content
+                    st.success("Analysis Complete!")
+                    st.markdown("---")
+                    st.markdown(st.session_state.vlm_analysis)
+                    st.info("💡 You can now ask specific questions about this analysis in the 'Medical RAG' tab.")
                 except Exception as e:
-                    st.error(f"Error: {str(e)}")
-    else:
-        st.warning("Configure GROQ_API_KEY to use this feature")
+                    st.error(f"Analysis failed: {e}")
 
 # ==================================================
-# TAB 3 - SENTIMENT ANALYSIS
+# TAB 2 - MEDICAL RAG (WITH CONTEXT)
+# ==================================================
+with tabs[2]:
+    st.subheader("Medical Knowledge Base & Follow-up")
+    
+    # Show context if image was analyzed
+    if st.session_state.vlm_analysis:
+        with st.expander("Reference Image Analysis Context"):
+            st.write(st.session_state.vlm_analysis)
+    
+    query = st.text_input("Ask a medical question or follow up on your image analysis:")
+    
+    if query and API_KEY:
+        with st.spinner("Searching knowledge base..."):
+            try:
+                # Build context-aware prompt
+                context = f"Previous Image Analysis: {st.session_state.vlm_analysis}" if st.session_state.vlm_analysis else "No previous image context."
+                
+                full_prompt = f"""Context: {context}
+                
+                User Query: {query}
+                
+                Instruction: Answer the query based on medical evidence. If the query is related to the previous image analysis context provided above, integrate that information into your response."""
+                
+                response = client.chat.completions.create(
+                    model="llama-3.1-8b-instant",
+                    messages=[{"role": "user", "content": full_prompt}]
+                )
+                st.markdown("### Response")
+                st.write(response.choices[0].message.content)
+            except Exception as e:
+                st.error(f"Error: {e}")
+
+# ==================================================
+# TABS 3, 4, 5 (SENTIMENT, TRANSLATOR, ABOUT)
 # ==================================================
 with tabs[3]:
-    st.subheader("Text Sentiment Analysis")
-    
-    if API_KEY:
-        text_input = st.text_area("Enter text", height=100)
-        
-        if text_input:
-            with st.spinner("Analyzing..."):
-                try:
-                    prompt = f"Classify sentiment (Positive/Neutral/Negative): {text_input}"
-                    response = client.chat.completions.create(
-                        model="llama-3.1-8b-instant",
-                        messages=[{"role": "user", "content": prompt}]
-                    )
-                    st.success(response.choices[0].message.content.strip())
-                except Exception as e:
-                    st.error(f"Error: {str(e)}")
-    else:
-        st.warning("Configure GROQ_API_KEY to use this feature")
+    st.subheader("Sentiment Analysis")
+    txt = st.text_area("Patient feedback/notes:")
+    if txt and API_KEY:
+        res = client.chat.completions.create(model="llama-3.1-8b-instant", messages=[{"role": "user", "content": f"Sentiment of: {txt}"}])
+        st.success(res.choices[0].message.content)
 
-# ==================================================
-# TAB 4 - TRANSLATOR
-# ==================================================
 with tabs[4]:
-    st.subheader("Multilingual Translator")
-    
-    if API_KEY:
-        text = st.text_input("Text to translate")
-        target_lang = st.selectbox("Translate to", ["Tamil", "Hindi", "Spanish", "French"])
-        
-        if text:
-            with st.spinner("Translating..."):
-                try:
-                    prompt = f"Translate to {target_lang}: {text}"
-                    response = client.chat.completions.create(
-                        model="llama-3.1-8b-instant",
-                        messages=[{"role": "user", "content": prompt}]
-                    )
-                    st.write(response.choices[0].message.content.strip())
-                except Exception as e:
-                    st.error(f"Error: {str(e)}")
-    else:
-        st.warning("Configure GROQ_API_KEY to use this feature")
+    st.subheader("Translator")
+    src_txt = st.text_input("Translate this:")
+    t_lang = st.selectbox("To:", ["Tamil", "Hindi", "Spanish", "French"])
+    if src_txt and API_KEY:
+        res = client.chat.completions.create(model="llama-3.1-8b-instant", messages=[{"role": "user", "content": f"Translate to {t_lang}: {src_txt}"}])
+        st.write(res.choices[0].message.content)
 
-# ==================================================
-# TAB 5 - ABOUT
-# ==================================================
 with tabs[5]:
-    st.subheader("About HealthAI Suite")
-    st.write("""
-### Mission
-Provide accessible, multilingual clinical AI for healthcare professionals.
-
-### Features
-- Clinical Assessment based on vital signs
-- Medical Image Analysis (VLM)
-- Medical RAG for knowledge retrieval
-- Medical Q&A in multiple languages
-- Sentiment analysis
-- Multilingual translation
-
-### Disclaimer
-This is decision-support only. Always consult healthcare professionals.
-
-### Setup
-1. Run: `python models/download_models.py`
-2. Add GROQ_API_KEY to Streamlit Secrets
-3. Redeploy
-
-Version: 1.1 (Beta)
-    """)
-    st.divider()
-    st.caption("HealthAI Suite | Powered by Streamlit & Groq")
+    st.subheader("About")
+    st.write("HealthAI v1.2 - Integrated Imaging & RAG System.")
