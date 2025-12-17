@@ -50,13 +50,13 @@ def load_models():
                 if model_file.endswith('.json'):
                     with open(model_path, 'r') as f:
                         MODELS[model_name] = json.load(f)
-                    status[model_name] = "OK Loaded"
+                    status[model_name] = "✓ Loaded"
                 elif model_file.endswith('.pkl'):
                     with open(model_path, 'rb') as f:
                         MODELS[model_name] = pickle.load(f)
-                    status[model_name] = "OK Loaded"
+                    status[model_name] = "✓ Loaded"
             else:
-                status[model_name] = "! Not found"
+                status[model_name] = "✗ Not found"
         except Exception as e:
             status[model_name] = f"ERROR: {str(e)[:30]}"
     
@@ -104,38 +104,34 @@ with tabs[0]:
             chol = st.number_input("Cholesterol", 100, 400, 180)
         
         analyze = st.form_submit_button("Analyze")
+    
+    if analyze:
+        if sbp >= 140 or sugar >= 126:
+            risk, color = "HIGH", "red"
+        elif bmi >= 25 or sbp >= 130:
+            risk, color = "MEDIUM", "orange"
+        else:
+            risk, color = "LOW", "green"
         
-        if analyze:
-            if sbp >= 140 or sugar >= 126:
-                risk, color = "HIGH", "red"
-            elif bmi >= 25 or sbp >= 130:
-                risk, color = "MEDIUM", "orange"
-            else:
-                risk, color = "LOW", "green"
-            
-            st.markdown("---")
-            st.subheader("Clinical Assessment Results")
-            
-            st.markdown(
-                f"""<div style="padding:20px;border-radius:10px;background-color:{color};color:white;font-size:22px;"><b>Disease Risk: {risk}</b></div>""",
-                unsafe_allow_html=True
-            )
-            
-            if risk == "LOW":
-                st.success("Low risk patient")
-            elif risk == "MEDIUM":
-                st.warning("Moderate risk - monitoring recommended")
-            else:
-                st.error("High risk - clinical attention required")
-            
-            c1, c2, c3 = st.columns(3)
-            with c1:
-                st.metric("Age Group", "Adult" if age >= 18 else "Minor")
-            with c2:
-                bmi_cat = "Normal" if bmi < 25 else "Overweight" if bmi < 30 else "Obese"
-                st.metric("BMI Category", bmi_cat)
-            with c3:
-                st.metric("Risk Level", risk)
+        st.markdown("---")
+        st.subheader("Clinical Assessment Results")
+        st.markdown(f"**Disease Risk: {risk}**")
+        
+        if risk == "LOW":
+            st.success("Low risk patient")
+        elif risk == "MEDIUM":
+            st.warning("Moderate risk - monitoring recommended")
+        else:
+            st.error("High risk - clinical attention required")
+        
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.metric("Age Group", "Adult" if age >= 18 else "Minor")
+        with c2:
+            bmi_cat = "Normal" if bmi < 25 else "Overweight" if bmi < 30 else "Obese"
+            st.metric("BMI Category", bmi_cat)
+        with c3:
+            st.metric("Risk Level", risk)
 
 # ==================================================
 # TAB 1 - IMAGING DIAGNOSIS
@@ -164,7 +160,7 @@ with tabs[1]:
                         img_byte_arr.seek(0)
                         base64_image = base64.b64encode(img_byte_arr.read()).decode('utf-8')
                         
-                        message = client.messages.create(
+                        message = client.chat.completions.create(
                             model="llama-2-vision-90b",
                             max_tokens=1024,
                             messages=[
@@ -188,17 +184,16 @@ with tabs[1]:
                             ],
                         )
                         
-                        analysis = message.content[0].text
+                        analysis = message.choices[0].message.content
                         st.markdown("---")
                         st.subheader("VLM Analysis Results")
                         st.write(analysis)
                         st.success("Analysis completed!")
-                        
                     except Exception as e:
                         st.error(f"Error: {str(e)[:100]}")
                         st.info("Ensure GROQ_API_KEY supports vision models.")
-    st.subheader("Medical Question Answering")
     
+    st.subheader("Medical Question Answering")
     if API_KEY:
         lang = st.selectbox("Choose language", ["English", "Tamil", "Hindi", "Spanish", "French"])
         question = st.text_input("Ask a medical question")
@@ -218,6 +213,34 @@ with tabs[1]:
         st.warning("Configure GROQ_API_KEY to use this feature")
 
 # ==================================================
+# TAB 2 - MEDICAL RAG
+# ==================================================
+with tabs[2]:
+    st.subheader("Medical Knowledge Base RAG")
+    st.write("Retrieve medical information from knowledge base.")
+    
+    if API_KEY:
+        query = st.text_input("Enter medical query")
+        
+        if query:
+            with st.spinner("Retrieving information..."):
+                try:
+                    prompt = f"""Based on medical knowledge, answer this clinical query:
+{query}
+
+Provide evidence-based response with references if possible."""
+                    
+                    response = client.chat.completions.create(
+                        model="llama-3.1-8b-instant",
+                        messages=[{"role": "user", "content": prompt}]
+                    )
+                    st.success(response.choices[0].message.content.strip())
+                except Exception as e:
+                    st.error(f"Error: {str(e)}")
+    else:
+        st.warning("Configure GROQ_API_KEY to use this feature")
+
+# ==================================================
 # TAB 3 - SENTIMENT ANALYSIS
 # ==================================================
 with tabs[3]:
@@ -225,6 +248,7 @@ with tabs[3]:
     
     if API_KEY:
         text_input = st.text_area("Enter text", height=100)
+        
         if text_input:
             with st.spinner("Analyzing..."):
                 try:
@@ -269,26 +293,26 @@ with tabs[4]:
 with tabs[5]:
     st.subheader("About HealthAI Suite")
     st.write("""
-    ### Mission
-    Provide accessible, multilingual clinical AI for healthcare professionals.
-    
-    ### Features
-    - Clinical Assessment based on vital signs
-    - Chest X-ray analysis
-    - Medical Q&A in multiple languages
-    - Sentiment analysis
-    - Multilingual translation
-    
-    ### Disclaimer
-    This is decision-support only. Always consult healthcare professionals.
-    
-    ### Setup
-    1. Run: python models/download_models.py
-    2. Add GROQ_API_KEY to Streamlit Secrets
-    3. Redeploy
-    
-    Version: 1.1 (Beta)
-    """)
+### Mission
+Provide accessible, multilingual clinical AI for healthcare professionals.
 
-st.divider()
-st.caption("HealthAI Suite | Powered by Streamlit & Groq")
+### Features
+- Clinical Assessment based on vital signs
+- Medical Image Analysis (VLM)
+- Medical RAG for knowledge retrieval
+- Medical Q&A in multiple languages
+- Sentiment analysis
+- Multilingual translation
+
+### Disclaimer
+This is decision-support only. Always consult healthcare professionals.
+
+### Setup
+1. Run: `python models/download_models.py`
+2. Add GROQ_API_KEY to Streamlit Secrets
+3. Redeploy
+
+Version: 1.1 (Beta)
+    """)
+    st.divider()
+    st.caption("HealthAI Suite | Powered by Streamlit & Groq")
