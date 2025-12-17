@@ -9,8 +9,8 @@ from dotenv import load_dotenv
 import json
 import pickle
 import base64
-import tensorflow as tf
-from tensorflow import keras
+from PIL import Image
+import io
 
 # ==================================================
 # ENV + PAGE
@@ -20,24 +20,22 @@ API_KEY = os.getenv("GROQ_API_KEY")
 
 st.set_page_config(page_title="HealthAI", layout="wide")
 st.title("🧠 HealthAI - Multilingual Clinical AI System")
-st.caption("Clinical ML * Imaging AI * Medical RAG * Sentiment * Translator")
+st.caption("Clinical ML * Medical RAG * Imaging Chat * Sentiment * Translator")
 
-# Initialize Session State for RAG context
-if "vlm_analysis" not in st.session_state:
-    st.session_state.vlm_analysis = ""
+# Initialize Session State
+if "uploaded_image_b64" not in st.session_state:
+    st.session_state.uploaded_image_b64 = None
 
 # ==================================================
-# MODEL LOADING (WITH GRACEFUL FALLBACK)
+# MODEL LOADING
 # ==================================================
 MODELS = {}
-MODEL_STATUS = {}
 MODELS_DIR = "models"
 
 @st.cache_resource
 def load_models():
     """Load ML models with error handling"""
     status = {}
-    
     expected_models = {
         "xgboost_disease_model.json": "XGBoost Disease Model",
         "association_rules.json": "Association Rules",
@@ -62,7 +60,6 @@ def load_models():
                 status[model_name] = "✗ Not found"
         except Exception as e:
             status[model_name] = f"ERROR: {str(e)[:30]}"
-    
     return status
 
 MODEL_STATUS = load_models()
@@ -78,8 +75,8 @@ else:
 # ==================================================
 tabs = st.tabs([
     "Clinical Assessment",
-    "Imaging Diagnosis",
-    "Medical RAG",
+    "Imaging Upload",
+    "Medical RAG Chat",
     "Sentiment",
     "Translator",
     "About"
@@ -90,8 +87,6 @@ tabs = st.tabs([
 # ==================================================
 with tabs[0]:
     st.subheader("Patient Clinical Assessment")
-    st.write("Enter patient vitals to assess disease risk.")
-    
     with st.form("clinical_form"):
         c1, c2 = st.columns(2)
         with c1:
@@ -104,118 +99,84 @@ with tabs[0]:
             dbp = st.number_input("Diastolic BP", 40, 150, 80)
             sugar = st.number_input("Blood Sugar", 50, 400, 110)
             chol = st.number_input("Cholesterol", 100, 400, 180)
-        
         analyze = st.form_submit_button("Analyze")
     
     if analyze:
-        if sbp >= 140 or sugar >= 126:
-            risk, color = "HIGH", "red"
-        elif bmi >= 25 or sbp >= 130:
-            risk, color = "MEDIUM", "orange"
-        else:
-            risk, color = "LOW", "green"
-        
-        st.markdown("---")
-        st.subheader("Clinical Assessment Results")
-        st.write(f"**Disease Risk: {risk}**")
-        
+        risk = "HIGH" if sbp >= 140 or sugar >= 126 else "MEDIUM" if bmi >= 25 or sbp >= 130 else "LOW"
+        st.subheader(f"Disease Risk: {risk}")
         if risk == "LOW": st.success("Low risk patient")
         elif risk == "MEDIUM": st.warning("Moderate risk - monitoring recommended")
         else: st.error("High risk - clinical attention required")
 
 # ==================================================
-# TAB 1 - IMAGING DIAGNOSIS (AUTO-TRIGGER)
+# TAB 1 - IMAGING UPLOAD
 # ==================================================
 with tabs[1]:
-    st.subheader("Medical Image Analysis (Auto-Analysis)")
-    st.write("Upload an image to get an immediate AI assessment.")
+    st.subheader("Medical Image Upload")
+    st.write("Upload an image here, then discuss it with the AI in the 'Medical RAG Chat' tab.")
     
-    uploaded_file = st.file_uploader("Upload Medical Image", type=["jpg", "png", "jpeg"], key="vlm_uploader")
+    uploaded_file = st.file_uploader("Upload Medical Image (X-ray, MRI, etc.)", type=["jpg", "png", "jpeg"])
     
     if uploaded_file is not None:
-        from PIL import Image
         image = Image.open(uploaded_file)
-        st.image(image, caption="Uploaded Image", width=400)
+        st.image(image, caption="Uploaded Image Ready for Chat", width=400)
         
-        if API_KEY:
-            with st.spinner("AI is analyzing the image..."):
-                try:
-                    import io
-                    img_byte_arr = io.BytesIO()
-                    image.convert('RGB').save(img_byte_arr, format='JPEG')
-                    base64_image = base64.b64encode(img_byte_arr.getvalue()).decode('utf-8')
-                    
-                    response = client.chat.completions.create(
-                        model="llama-3.2-11b-vision-preview",
-                        messages=[{
-                            "role": "user",
-                            "content": [
-                                {"type": "text", "text": "Provide a detailed clinical analysis: Type, Findings, and Next Steps."},
-                                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
-                            ]
-                        }]
-                    )
-                    
-                    st.session_state.vlm_analysis = response.choices[0].message.content
-                    st.success("Analysis Complete!")
-                    st.markdown("---")
-                    st.markdown(st.session_state.vlm_analysis)
-                    st.info("💡 You can now ask specific questions about this analysis in the 'Medical RAG' tab.")
-                except Exception as e:
-                    st.error(f"Analysis failed: {e}")
+        # Convert to Base64 for RAG context
+        img_byte_arr = io.BytesIO()
+        image.convert('RGB').save(img_byte_arr, format='JPEG')
+        st.session_state.uploaded_image_b64 = base64.b64encode(img_byte_arr.getvalue()).decode('utf-8')
+        st.success("Image uploaded! Switch to 'Medical RAG Chat' to ask questions about it.")
 
 # ==================================================
-# TAB 2 - MEDICAL RAG (WITH CONTEXT)
+# TAB 2 - MEDICAL RAG CHAT (INTEGRATED)
 # ==================================================
 with tabs[2]:
-    st.subheader("Medical Knowledge Base & Follow-up")
+    st.subheader("Medical Knowledge Chatbot")
     
-    # Show context if image was analyzed
-    if st.session_state.vlm_analysis:
-        with st.expander("Reference Image Analysis Context"):
-            st.write(st.session_state.vlm_analysis)
+    if st.session_state.uploaded_image_b64:
+        st.info("🖼️ Image context is active. You can ask questions about your uploaded scan.")
     
-    query = st.text_input("Ask a medical question or follow up on your image analysis:")
+    query = st.text_input("Ask a medical question (or ask about your uploaded image):")
     
     if query and API_KEY:
-        with st.spinner("Searching knowledge base..."):
+        with st.spinner("Consulting AI..."):
             try:
-                # Build context-aware prompt
-                context = f"Previous Image Analysis: {st.session_state.vlm_analysis}" if st.session_state.vlm_analysis else "No previous image context."
+                # Use Llama 3.2 90B Vision (The current active vision-capable model on Groq)
+                content = [{"type": "text", "text": f"User Medical Query: {query}"}]
                 
-                full_prompt = f"""Context: {context}
-                
-                User Query: {query}
-                
-                Instruction: Answer the query based on medical evidence. If the query is related to the previous image analysis context provided above, integrate that information into your response."""
-                
+                if st.session_state.uploaded_image_b64:
+                    content.append({
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/jpeg;base64,{st.session_state.uploaded_image_b64}"}
+                    })
+
                 response = client.chat.completions.create(
-                    model="llama-3.1-8b-instant",
-                    messages=[{"role": "user", "content": full_prompt}]
+                    model="llama-3.2-90b-vision-preview",
+                    messages=[{"role": "user", "content": content}]
                 )
-                st.markdown("### Response")
+                st.markdown("### Clinical Response")
                 st.write(response.choices[0].message.content)
             except Exception as e:
-                st.error(f"Error: {e}")
+                st.error(f"Chat failed: {str(e)}")
 
 # ==================================================
-# TABS 3, 4, 5 (SENTIMENT, TRANSLATOR, ABOUT)
+# TABS 3, 4, 5
 # ==================================================
 with tabs[3]:
     st.subheader("Sentiment Analysis")
-    txt = st.text_area("Patient feedback/notes:")
+    txt = st.text_area("Enter notes for sentiment analysis:")
     if txt and API_KEY:
-        res = client.chat.completions.create(model="llama-3.1-8b-instant", messages=[{"role": "user", "content": f"Sentiment of: {txt}"}])
-        st.success(res.choices[0].message.content)
+        res = client.chat.completions.create(model="llama-3.1-8b-instant", messages=[{"role": "user", "content": f"Analyze medical sentiment: {txt}"}])
+        st.write(res.choices[0].message.content)
 
 with tabs[4]:
-    st.subheader("Translator")
-    src_txt = st.text_input("Translate this:")
-    t_lang = st.selectbox("To:", ["Tamil", "Hindi", "Spanish", "French"])
+    st.subheader("Medical Translator")
+    src_txt = st.text_input("Text to translate:")
+    t_lang = st.selectbox("Target Language:", ["Tamil", "Hindi", "Spanish", "French"])
     if src_txt and API_KEY:
         res = client.chat.completions.create(model="llama-3.1-8b-instant", messages=[{"role": "user", "content": f"Translate to {t_lang}: {src_txt}"}])
         st.write(res.choices[0].message.content)
 
 with tabs[5]:
     st.subheader("About")
-    st.write("HealthAI v1.2 - Integrated Imaging & RAG System.")
+    st.write("HealthAI v1.3 - Fixed Model Decommissioning Issue.")
