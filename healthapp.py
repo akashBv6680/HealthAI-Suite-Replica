@@ -8,6 +8,7 @@ import os
 from dotenv import load_dotenv
 import json
 import pickle
+import base64
 import tensorflow as tf
 from tensorflow import keras
 
@@ -140,35 +141,62 @@ with tabs[0]:
 # TAB 1 - IMAGING DIAGNOSIS
 # ==================================================
 with tabs[1]:
-    st.subheader("Chest X-Ray Analysis")
-    st.write("Upload a chest X-ray image for pneumonia detection.")
+    st.subheader("Medical Image Analysis with Vision Language Model")
+    st.write("Upload medical images for AI analysis using Groq VLM.")
     
-    uploaded_file = st.file_uploader("Upload Chest X-ray", type=["jpg", "png", "jpeg"])
+    uploaded_file = st.file_uploader("Upload Medical Image", type=["jpg", "png", "jpeg"])
+    
     if uploaded_file is not None:
         from PIL import Image
         image = Image.open(uploaded_file)
-        st.image(image, caption="Uploaded X-ray", width=300)
+        st.image(image, caption="Uploaded Medical Image", width=400)
         
-        try:
-            model_path = "models/pneumonia_cnn_model.h5"
-            if os.path.exists(model_path):
-                cnn_model = keras.models.load_model(model_path)
-                img_array = np.array(image.convert('L'))
-                img_resized = keras.preprocessing.image.smart_resize(img_array, (224, 224))
-                img_batch = np.expand_dims(img_resized, axis=0) / 255.0
-                prediction = cnn_model.predict(img_batch, verbose=0)
-                confidence = float(prediction[0][0])
-                
-                st.markdown("---")
-                if confidence > 0.5:
-                    st.error(f"Pneumonia Detected (Confidence: {confidence*100:.1f}%)")
-                else:
-                    st.success(f"Normal - No Pneumonia (Confidence: {(1-confidence)*100:.1f}%)")
-            else:
-                st.success("Analysis Complete - Normal Chest X-ray (Demo - 85% confidence)")
-        except:
-            st.success("Analysis Complete - Normal Chest X-ray (Demo - 85% confidence)")
-with tabs[2]:
+        if not API_KEY:
+            st.warning("Configure GROQ_API_KEY to enable VLM analysis.")
+        else:
+            if st.button("Analyze Image with Groq VLM"):
+                with st.spinner("Analyzing image..."):
+                    try:
+                        image_data = image.convert('RGB')
+                        import io
+                        img_byte_arr = io.BytesIO()
+                        image_data.save(img_byte_arr, format='JPEG')
+                        img_byte_arr.seek(0)
+                        base64_image = base64.b64encode(img_byte_arr.read()).decode('utf-8')
+                        
+                        message = client.messages.create(
+                            model="llama-2-vision-90b",
+                            max_tokens=1024,
+                            messages=[
+                                {
+                                    "role": "user",
+                                    "content": [
+                                        {
+                                            "type": "image",
+                                            "source": {
+                                                "type": "base64",
+                                                "media_type": "image/jpeg",
+                                                "data": base64_image,
+                                            },
+                                        },
+                                        {
+                                            "type": "text",
+                                            "text": "Analyze this medical image. Provide: 1) Image type 2) Key findings 3) Observations 4) Next steps. Be clinical."
+                                        }
+                                    ],
+                                }
+                            ],
+                        )
+                        
+                        analysis = message.content[0].text
+                        st.markdown("---")
+                        st.subheader("VLM Analysis Results")
+                        st.write(analysis)
+                        st.success("Analysis completed!")
+                        
+                    except Exception as e:
+                        st.error(f"Error: {str(e)[:100]}")
+                        st.info("Ensure GROQ_API_KEY supports vision models.")
     st.subheader("Medical Question Answering")
     
     if API_KEY:
