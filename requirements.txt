@@ -1,34 +1,61 @@
 # ===============================
+
 # Core
+
 # ===============================
-streamlit>=1.40.0
+
+streamlit>=1.38.0
+
 python-dotenv==1.0.1
+
 rich
 
-# ===============================
-# Deep Learning & AI
-# ===============================
-# Note: TensorFlow 2.20+ for Python 3.13 compatibility
-tensorflow>=2.20.0
-numpy>=1.26,<2.0
-# Google Gemini SDK
-google-generativeai>=0.8.0
+
 
 # ===============================
-# Machine Learning
+
+# Deep Learning (Streamlit Cloud + Python 3.13 SAFE)
+
 # ===============================
+
+tensorflow==2.20.0
+
+numpy>=1.26,<2.0
+
+
+
+# ===============================
+
+# Machine Learning
+
+# ===============================
+
 pandas
+
 scikit-learn
+
 xgboost
+
 joblib
 
-# ===============================
-# Image Processing
-# ===============================
-Pillow
-opencv-python-headless
+
 
 # ===============================
-# Utilities
+
+# Image Processing
+
 # ===============================
-python-multipart
+
+Pillow
+
+opencv-python-headless
+
+
+
+# ===============================
+
+# LLM Integration
+
+# ===============================
+
+groq
