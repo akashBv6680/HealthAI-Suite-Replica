@@ -161,7 +161,7 @@ with tabs[1]:
                         base64_image = base64.b64encode(img_byte_arr.read()).decode('utf-8')
                         
                         message = client.chat.completions.create(
-                            model="llama-2-vision-90b",
+                            model="meta-llama/llama-4-scout-17b-16e-instruct-90b",
                             max_tokens=1024,
                             messages=[
                                 {
